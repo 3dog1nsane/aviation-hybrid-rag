@@ -1,0 +1,23 @@
+# Core deps for inference pipeline
+pymilvus>=2.4.0
+sentence-transformers>=3.0.0
+torch>=2.0.0
+jieba>=0.42.1
+numpy>=1.24.0
+
+# Data loading / processing
+tqdm>=4.65.0
+
+# LLM client (for end-to-end QA)
+openai>=1.0.0       # DeepSeek SDK is OpenAI-compatible
+python-dotenv>=1.0.0
+
+# Optional - only for the crawler module
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+pdfplumber>=0.10.0
+langchain-text-splitters>=0.0.1
+
+# Optional - only for downloading models from ModelScope
+modelscope>=1.10.0
