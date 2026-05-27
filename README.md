@@ -10,6 +10,14 @@
 
 ---
 
+## 🎬 Demo
+
+[![asciicast](https://asciinema.org/a/d40tPJGNwsFCnUwT.svg)](https://asciinema.org/a/d40tPJGNwsFCnUwT)
+
+> 端到端问答:用户提问 → 混合检索 + Rerank → DeepSeek 生成回答 + 引用追溯 (citation)
+
+---
+
 ## 🎯 项目特点
 
 - **真实领域数据**:114 部 CCAR 民航法规、5372 个语义切片(repo 仅含 20 条样本)
@@ -17,6 +25,7 @@
 - **混合检索**:Milvus 原生 `hybrid_search` + RRF 融合 (k=60),dense (bge-m3, 1024d) + sparse 双路
 - **Cross-Encoder 精排**:bge-reranker-v2-m3,实测 Top-1 改判率 71%
 - **No-answer detection**:利用 reranker 分数分布发现数据缺失场景(实测 0.05 vs 0.86~0.99,差一个数量级)
+- **端到端 RAG 问答**:接入 DeepSeek API,实现 query → 答案 + **citation 引用追溯**(降低幻觉、可审计)
 
 ---
 
