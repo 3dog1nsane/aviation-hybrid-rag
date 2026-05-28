@@ -56,3 +56,4 @@ logs/
 # ----------- 但是要保留这些 -----------
 # bm25_encoder.pkl 是训练产物,不大且方便招聘者运行 demo,例外允许
 !data/bm25_encoder.pkl
+docs/C4_summary.md

@@ -117,6 +117,9 @@ python code/retrieval/hybrid_search_demo.py
 
 # 召回 + 重排管线
 python code/rerank/pipeline_with_rerank.py
+
+# 端到端 RAG 问答(混合检索 + Rerank + DeepSeek + citation)
+python code/llm/demo.py
 ```
 
 ---
@@ -204,6 +207,7 @@ Query "CCAR-25 关于飞机结构强度的要求" 中,jieba 把 "CCAR-25" 切成
 
 ## 📁 项目结构
 
+
 ```text
 aviation-hybrid-rag/
 ├── code/
@@ -217,11 +221,16 @@ aviation-hybrid-rag/
 │   │   ├── hybrid_retriever.py       # 混合检索器 (核心模块)
 │   │   ├── milvus_setup.py           # Milvus collection 建表
 │   │   ├── milvus_insert.py          # 灌库脚本
-│   │   ├── test_bm25_locally.py     # BM25 本地验证
+│   │   ├── download_bge_m3.py        # bge-m3 模型下载
+│   │   ├── test_bm25_locally.py      # BM25 本地验证
 │   │   └── hybrid_search_demo.py     # 三路对比 demo
-│   └── rerank/                       # 精排层
-│       ├── reranker.py               # CrossEncoder 封装 (核心模块)
-│       └── pipeline_with_rerank.py   # 召回+精排完整管线
+│   ├── rerank/                       # 精排层
+│   │   ├── reranker.py               # CrossEncoder 封装 (核心模块)
+│   │   ├── download_reranker.py      # reranker 模型下载
+│   │   └── pipeline_with_rerank.py   # 召回+精排完整管线
+│   └── llm/                          # 生成层
+│       ├── rag_qa.py                 # 端到端 RAG 问答 (核心模块)
+│       └── demo.py                   # 交互式 demo (asciinema 录制入口)
 ├── data/
 │   ├── aviation_dict.txt             # 3296 词航空术语 jieba 词典
 │   ├── bm25_encoder.pkl              # 训练好的 BM25 状态 (词表+IDF)
@@ -229,12 +238,12 @@ aviation-hybrid-rag/
 │       └── ccar_chunks_sample.jsonl  # 20 条样本数据
 ├── docs/
 │   └── C4_summary.md                 # 项目学习总结(中文)
+├── LICENSE
 └── requirements.txt
 ```
 
 ## 🙏 致谢与说明
 
-- 跟随 [Datawhale all-in-rag](https://github.com/datawhalechina/all-in-rag) 教程的学习路径,但实现采用工业化方案
+- 参考 [Datawhale all-in-rag](https://github.com/datawhalechina/all-in-rag) 教程的学习路径,但实现采用工业化方案
 - CCAR 法规数据来源于民航局官网公开页面,**仅用于个人学习**
 - 模型来自 BAAI 的 [bge-m3](https://huggingface.co/BAAI/bge-m3) 和 [bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3)
-- 详细学习总结见 [`docs/C4_summary.md`](docs/C4_summary.md)
