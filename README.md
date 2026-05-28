@@ -3,6 +3,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12-blue)]()
 [![Milvus](https://img.shields.io/badge/Milvus-2.6-orange)]()
 [![Models](https://img.shields.io/badge/Models-bge--m3%20%7C%20bge--reranker--v2--m3-green)]()
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 > 面向中国民航 CCAR 法规的高精度检索系统。
 > **Hybrid search (dense + sparse BM25) + Cross-Encoder rerank**,
@@ -20,28 +21,40 @@
 
 ## 🎯 项目特点
 
-- **真实领域数据**:114 部 CCAR 民航法规、5372 个语义切片(repo 仅含 20 条样本)
+- **真实领域数据**:114 份民航法规/规范性文件、5372 个语义切片(repo 仅含 20 条样本)
 - **手写 BM25 编码器**:jieba 中文分词 + 3296 词航空术语词典 + 自实现 IDF / 稀疏向量输出
 - **混合检索**:Milvus 原生 `hybrid_search` + RRF 融合 (k=60),dense (bge-m3, 1024d) + sparse 双路
-- **Cross-Encoder 精排**:bge-reranker-v2-m3,实测 Top-1 改判率 71%
-- **No-answer detection**:利用 reranker 分数分布发现数据缺失场景(实测 0.05 vs 0.86~0.99,差一个数量级)
+- **Cross-Encoder 精排**:bge-reranker-v2-m3,100 条评测集上将 Recall@1 从 0.58 提升至 0.76
+- **No-answer detection**:利用 reranker 分数分布识别库中无答案场景(异常 query 0.05 vs 正常 0.86~0.99,差一个数量级)
+- **时效性过滤**:每个 chunk 保留 validity 状态,默认只检索现行有效法规,支持历史版本按需查询
 - **端到端 RAG 问答**:接入 DeepSeek API,实现 query → 答案 + **citation 引用追溯**(降低幻觉、可审计)
 
 ---
 
 ## 📊 关键指标
 
-| 指标                           | 数值                                     |
-| ------------------------------ | ---------------------------------------- |
-| 文档规模                       | 114 法规 × 5372 chunks                   |
-| BM25 词表大小                  | 35,117                                   |
-| Dense 向量维度                 | 1024 (bge-m3)                            |
-| Sparse 向量平均非零数          | 96                                       |
-| Dense ∩ Sparse top-5 重叠率    | 0.4 / 5(7 个 query 中 6 个 0% 重叠)      |
-| **Rerank Top-1 改判率**        | **71% (5/7)**                            |
-| **真答案在召回 top-6~50 占比** | **80%**(验证"召回宽,精排严"必要性)       |
-| **No-answer 阈值信号**         | rerank_score < 0.3(实测异常 query: 0.05) |
-| Rerank 50 条耗时               | 1.3s (RTX 4080)                          |
+| 指标             | 数值                                |
+| ---------------- | ----------------------------------- |
+| 入库文档规模     | 114 份文件 × 5372 chunks            |
+| 现行有效法规库   | 28 份 × 1992 chunks(validity 过滤) |
+| BM25 词表大小    | 35,117                              |
+| Dense 向量维度   | 1024 (bge-m3)                       |
+| 评测标注集       | 100 条 LLM 自动构造 query           |
+| Rerank 50 条耗时 | 1.3s (RTX 4080)                     |
+
+### 检索质量评测(100 条标注集,只检索现行有效库)
+
+| 配置              | Recall@1  | Recall@5  | Recall@10 | MRR@10    | NDCG@10   |
+| ----------------- | --------- | --------- | --------- | --------- | --------- |
+| dense             | 0.560     | 0.860     | 0.910     | 0.694     | 0.747     |
+| sparse (BM25)     | 0.540     | 0.830     | 0.880     | 0.665     | 0.718     |
+| hybrid (RRF)      | 0.580     | 0.860     | 0.910     | 0.708     | 0.758     |
+| **hybrid+rerank** | **0.760** | **0.970** | **0.970** | **0.856** | **0.885** |
+
+> **关键结论**:三种召回方式 Recall@10 均达 0.88~0.91,说明召回阶段
+> "把正确答案捞进候选池"基本不是瓶颈;真正的增益来自 **Cross-Encoder
+> 精排**——它把 Recall@1 从 0.58 拉到 0.76、MRR@10 从 0.71 拉到 0.86。
+> 这印证了"召回宽、精排严"的两阶段设计。
 
 ---
 
@@ -63,7 +76,8 @@
 code/
 ├── crawler/       # 数据获取与预处理:CCAR 网页爬虫 + PDF 解析 + chunk 切分
 ├── retrieval/     # 召回层:BM25Encoder + bge-m3 + Milvus hybrid_search
-└── rerank/        # 精排层:Cross-Encoder + 召回-精排管线
+├── rerank/        # 精排层:Cross-Encoder + 召回-精排管线
+└── llm/           # 生成层:DeepSeek 端到端问答 + citation
 ```
 
 ## 🚀 快速开始
@@ -71,27 +85,29 @@ code/
 ### 1. 环境准备
 
 ```bash
-# Clone + 进入项目
 git clone https://github.com/3dog1nsane/aviation-hybrid-rag.git
 cd aviation-hybrid-rag
 
-# 创建虚拟环境(推荐 uv,也可以用 venv)
+# 创建虚拟环境(推荐 uv,也可用标准 venv)
 uv venv && source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-### 2. 启动 Milvus
+### 2. 启动 Milvus (Standalone)
+
+本项目使用 Milvus 2.6 standalone 部署,仓库未包含 docker-compose.yml,请按官方文档下载:
 
 ```bash
-# 复用 Milvus 官方 standalone docker-compose
-# (本仓库不包含 docker-compose,请参考 https://milvus.io/docs/install_standalone-docker.md)
+wget https://github.com/milvus-io/milvus/releases/download/v2.6.0/milvus-standalone-docker-compose.yml -O docker-compose.yml
 docker compose up -d
+docker compose ps   # 验证容器状态
 ```
+
+> 详见 [Milvus 官方文档](https://milvus.io/docs/install_standalone-docker.md)。
 
 ### 3. 下载模型
 
 ```bash
-# 从 ModelScope 下载(国内速度稳定,~5 分钟)
 python code/retrieval/download_bge_m3.py
 python code/rerank/download_reranker.py
 ```
@@ -102,7 +118,7 @@ python code/rerank/download_reranker.py
 
 ```bash
 cp .env.example .env
-# 编辑 .env 填入你的 DeepSeek API key、模型路径等
+# 编辑 .env 填入 DeepSeek API key、模型路径等
 ```
 
 ### 5. 跑通 demo
@@ -155,45 +171,64 @@ RRF 只看 rank,不看 score:`RRF(d) = Σ 1/(rank_i(d) + k)`。BM25 输出几十
 
 **工业标准 pattern**:bi-encoder 召回 50~100 条 → cross-encoder 精排 5~10 条 → 喂 LLM。
 
+### 5. 为什么全量入库 + validity 过滤,而非只存有效法规?
+
+法规系统中,失效/历史版本并非垃圾数据——历史版本查询、版本对比、合规追溯都需要它们。因此采用"软删除"思路:全量入库,用 `validity` 标量字段控制展示,默认只返回现行有效条款,需要时一行 filter 即可放开历史查询。
+
 ---
 
 ## 🔬 实验发现
 
-### 发现 1:Dense / Sparse 几乎 0% 重叠
+### 发现 1:瓶颈在排序,不在召回 —— Rerank 是最大增益来源
 
-7 个 query 中 6 个 dense top-5 与 sparse top-5 **完全不相交**。两路从根本上用不同方式看待文本:
+对比表里最显著的一跳是 hybrid → hybrid+rerank:Recall@1 +18 个点、MRR@10 +0.15。而三种召回方式之间差异很小(Recall@1 都在 0.54~0.58)。
+
+解读:召回阶段已经能把正确 chunk 放进 top-50(Recall@10≈0.9),瓶颈是"top-50 里怎么把对的排到最前",这正是 cross-encoder 做全文 token-level attention 的强项。**这是"召回宽、精排严"管线有效性的直接证据。**
+
+### 发现 2:混合检索增益温和,但 dense / sparse 机理互补
+
+hybrid 相比纯 dense 只高约 2 个点。原因:评测 query 语义较明确,bge-m3 dense 本身召回已强,sparse 的补充空间有限。但两路的**召回机理**仍是互补的:
 
 - Dense:语义相似度("运输类飞机" ≈ "民航客机")
-- Sparse:词项匹配度(必须有"运输类"这个 token)
+- Sparse:词项精确匹配(必须命中"运输类"这个 token)
 
-**这就是混合检索的价值**:互补性极强。
+在词项精确匹配更关键的场景(如强标识符、专有术语),sparse 的价值会更突出(见发现 4)。
 
-### 发现 2:Rerank 的"no-answer detection"能力
+### 发现 3:Rerank 分数可做 no-answer 拒答信号
 
-故意设计一个数据库里没答案的 query("航油的危险品分类"),所有 7 个 query 的 Rerank Top-1 分数对比:
-正常 query Top-1: 0.86 ~ 0.99
-异常 query Top-1: 0.0503
-**差一个数量级**。可以用 `rerank_score < 0.3` 作为阈值实现 no-answer detection,直接拒答而不返回错误内容。**这是 bi-encoder 做不到的**——dense 在不知道时也会给 0.5~0.7 的分数。
+对一个库中无答案的 query("航油的危险品分类"),其 Rerank Top-1 得分仅 0.05,而正常 query 普遍在 0.86~0.99,**差一个数量级**。可用 `rerank_score < 阈值` 作为低成本拒答信号,无相关上下文时主动拒答而非强行生成,降低幻觉。这是 bi-encoder 难以做到的(dense 在不确定时仍会给中等分数)。
 
-### 发现 3:BM25 + jieba 对强标识符的盲区
+> 注:此为定性观察,拒答阈值尚未在大规模负样本上严格标定,见"未来工作"。
 
-Query "CCAR-25 关于飞机结构强度的要求" 中,jieba 把 "CCAR-25" 切成 `["CCAR", "-", "25"]`,无法作为整体 token 匹配。Dense 也未找到 CCAR-25 主条款。**最后 Rerank 把真正的 CCAR-25-R4 条款从召回深处挖出来**——再次印证 Cross-Encoder 不依赖分词、做全文 attention 的价值。
+### 发现 4:BM25 + jieba 对强标识符的盲区
 
-工业级解决方案(本项目未实现,识别到问题):
-
-- 加 ngram 索引(catch 强标识符)
-- 命名实体识别预处理
-- LLM 重写 query(展开"CCAR-25" → "CCAR-25 运输类飞机适航标准")
+Query "CCAR-25 关于飞机结构强度的要求" 中,jieba 把 "CCAR-25" 切成 `["CCAR", "-", "25"]`,无法整体匹配;dense 也未直接命中主条款。最终是 Rerank 把正确条款从召回深处提了上来——再次印证 cross-encoder 不依赖分词、做全文 attention 的价值。工业级补救方案(已识别,留待后续):ngram 索引、命名实体识别预处理、LLM query 改写。
 
 ---
 
-## ⚠️ 已知限制 / 未来工作
+## 🧪 评测方法
 
-1. **自动评测缺失**:目前仅 7 个 query 人工对比,生产环境需要 200+ 标注 query 计算 Recall@5、MRR、NDCG
-2. **强标识符问题**:见"发现 3",需要 ngram 索引或 query rewriting
-3. **No-answer 阈值未严格调优**:仅观察到 0.05 vs 0.86 的差距,实际阈值需要更多负样本验证
-4. **Chunk 策略粗糙**:目前按固定字符切分,更精细应该按法规条款语义切分(如按"第 X 条"切)
-5. **缓存层缺失**:dense query 编码、热点 query 结果可以缓存到 Redis
+为避免凭少量人工 query 下结论,构建了一套可复现的检索评测流程:
+
+1. **标注集构造**:从 `validity == "有效"` 的法规 chunk 中按文档分层抽样,用 LLM(DeepSeek)为每个 chunk 生成一个用户视角的问题,自动建立 `query → golden chunk` 配对,得到 100 条标注集。
+2. **评测口径**:单正例标注,统计 Recall@K(单正例下等价 Hit@K)、MRR@10、NDCG@10;所有检索均加 `validity == "有效"` 过滤,只评现行有效库。
+3. **对比四种配置**:dense / sparse / hybrid / hybrid+rerank,召回池 50 → rerank 取 top-10。
+
+**已知偏差(诚实声明)**:
+
+- LLM 基于 chunk 生成 query,可能存在词汇泄露(query 与 golden 词汇重合),使 sparse 分数偏乐观;prompt 已要求同义改写以缓解,但无法根除。
+- 单正例标注会低估 Recall(同一问题可能有多个相关 chunk 被判为未命中)。
+- 标注集规模 100、覆盖 28 份现行有效文档,适合方向性对比,尚不足以支撑跨数据集的强统计结论。
+
+---
+
+## 🛠️ 未来工作
+
+1. **扩展评测集**:从 100 条扩到数百条,引入多正例标注,提升统计可靠性;评估集覆盖在域、超域、强标识符三类场景。
+2. **强标识符检索**:针对 "CCAR-25" 等标识符,加 ngram 索引或 LLM query 改写,解决发现 4 的分词盲区。
+3. **No-answer 阈值标定**:在更多负样本上严格标定拒答阈值,而非经验值。
+4. **更精细的 chunk 策略**:从固定字符切分改为按法规条款语义切分(如按"第 X 条")。
+5. **缓存层**:dense query 编码、热点 query 结果缓存到 Redis,降低线上延迟。
 
 ### 计划中的下一步:Graph RAG
 
@@ -206,7 +241,6 @@ Query "CCAR-25 关于飞机结构强度的要求" 中,jieba 把 "CCAR-25" 切成
 ---
 
 ## 📁 项目结构
-
 
 ```text
 aviation-hybrid-rag/
@@ -236,14 +270,16 @@ aviation-hybrid-rag/
 │   ├── bm25_encoder.pkl              # 训练好的 BM25 状态 (词表+IDF)
 │   └── samples/
 │       └── ccar_chunks_sample.jsonl  # 20 条样本数据
-├── docs/
-│   └── C4_summary.md                 # 项目学习总结(中文)
 ├── LICENSE
 └── requirements.txt
 ```
 
 ## 🙏 致谢与说明
 
-- 参考 [Datawhale all-in-rag](https://github.com/datawhalechina/all-in-rag) 教程的学习路径,但实现采用工业化方案
-- CCAR 法规数据来源于民航局官网公开页面,**仅用于个人学习**
+- 参考 [Datawhale all-in-rag](https://github.com/datawhalechina/all-in-rag) 教程的学习路径,实现采用工业化方案
+- 法规数据来源于民航局官网公开页面,**仅用于个人学习**;法规有效性以 2026 年初爬取时为准
 - 模型来自 BAAI 的 [bge-m3](https://huggingface.co/BAAI/bge-m3) 和 [bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3)
+
+## 📄 License
+
+[MIT](LICENSE)
