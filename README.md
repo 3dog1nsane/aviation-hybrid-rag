@@ -214,11 +214,6 @@ Query "CCAR-25 关于飞机结构强度的要求" 中,jieba 把 "CCAR-25" 切成
 2. **评测口径**:单正例标注,统计 Recall@K(单正例下等价 Hit@K)、MRR@10、NDCG@10;所有检索均加 `validity == "有效"` 过滤,只评现行有效库。
 3. **对比四种配置**:dense / sparse / hybrid / hybrid+rerank,召回池 50 → rerank 取 top-10。
 
-**已知偏差(诚实声明)**:
-
-- LLM 基于 chunk 生成 query,可能存在词汇泄露(query 与 golden 词汇重合),使 sparse 分数偏乐观;prompt 已要求同义改写以缓解,但无法根除。
-- 单正例标注会低估 Recall(同一问题可能有多个相关 chunk 被判为未命中)。
-- 标注集规模 100、覆盖 28 份现行有效文档,适合方向性对比,尚不足以支撑跨数据集的强统计结论。
 > 评测脚本与样本见 [`code/eval/`](code/eval/)。
 
 ---
